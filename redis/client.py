@@ -360,8 +360,8 @@ class StrictRedis(object):
             bool
         ),
         string_keys_to_dict(
-            'BITCOUNT BITPOS DECRBY DEL GETBIT HDEL HLEN INCRBY LINSERT LLEN '
-            'LPUSHX PFADD PFCOUNT RPUSHX SADD SCARD SDIFFSTORE SETBIT '
+            'BITCOUNT R.BITCOUNT BITPOS R.BITPOS DECRBY DEL GETBIT R.GETBIT HDEL HLEN INCRBY LINSERT LLEN '
+            'LPUSHX PFADD PFCOUNT RPUSHX SADD SCARD SDIFFSTORE SETBIT R.SETBIT '
             'SETRANGE SINTERSTORE SREM STRLEN SUNIONSTORE ZADD ZCARD '
             'ZLEXCOUNT ZREM ZREMRANGEBYLEX ZREMRANGEBYRANK ZREMRANGEBYSCORE '
             'GEOADD',
@@ -424,6 +424,9 @@ class StrictRedis(object):
             'SENTINEL SET': bool_ok,
             'SENTINEL SLAVES': parse_sentinel_slaves_and_sentinels,
             'SET': lambda r: r and nativestr(r) == 'OK',
+            'R.SETBITARRAY': lambda r: r and nativestr(r) == 'OK',
+            'R.SETINTARRAY': lambda r: r and nativestr(r) == 'OK',
+            'R.BITOP': lambda x: int(x),
             'SLOWLOG GET': parse_slowlog_get,
             'SLOWLOG LEN': int,
             'SLOWLOG RESET': bool_ok,
@@ -449,6 +452,7 @@ class StrictRedis(object):
             'GEOPOS': lambda r: list(map(lambda ll: (float(ll[0]),
                                          float(ll[1])), r)),
             'GEOHASH': lambda r: list(map(nativestr, r)),
+            'R.GETINTARRAY': lambda r: [int(x) for x in r],
             'GEORADIUS': parse_georadius_generic,
             'GEORADIUSBYMEMBER': parse_georadius_generic,
             'PUBSUB NUMSUB': parse_pubsub_numsub,
@@ -882,6 +886,14 @@ class StrictRedis(object):
         """
         return self.execute_command('APPEND', key, value)
 
+    def rbitcount(self, key):
+        """
+        Returns the count of set bits in the value of ``key``.  Optional
+        ``start`` and ``end`` paramaters indicate which bytes to consider
+        """
+        params = [key]
+        return self.execute_command('R.BITCOUNT', *params)
+
     def bitcount(self, key, start=None, end=None):
         """
         Returns the count of set bits in the value of ``key``.  Optional
@@ -896,12 +908,44 @@ class StrictRedis(object):
             raise RedisError("Both start and end must be specified")
         return self.execute_command('BITCOUNT', *params)
 
+    def rbitop(self, operation, dest, *keys):
+        """
+        Perform a bitwise operation using ``operation`` between ``keys`` and
+        store the result in ``dest``.
+        """
+        return self.execute_command('R.BITOP', operation, dest, *keys)
+
     def bitop(self, operation, dest, *keys):
         """
         Perform a bitwise operation using ``operation`` between ``keys`` and
         store the result in ``dest``.
         """
         return self.execute_command('BITOP', operation, dest, *keys)
+
+    def rset_int_array(self, key, ints):
+        return self.execute_command('R.SETINTARRAY', key, *ints)
+
+    def rget_int_array(self, key):
+        return self.execute_command('R.GETINTARRAY', key)
+
+    def rset_bit_array(self, key, bits):
+        return self.execute_command('R.SETBITARRAY', key, bits)
+
+    def rget_bit_array(self, key):
+        return self.execute_command('R.GETBITARRAY', key)
+
+    def rbitpos(self, key, bit):
+        """
+        Return the position of the first bit set to 1 or 0 in a string.
+        ``start`` and ``end`` difines search range. The range is interpreted
+        as a range of bytes and not a range of bits, so start=0 and end=2
+        means to look at the first three bytes.
+        """
+        if bit not in (0, 1):
+            raise RedisError('bit must be 0 or 1')
+        params = [key, bit]
+
+        return self.execute_command('R.BITPOS', *params)
 
     def bitpos(self, key, bit, start=None, end=None):
         """
@@ -982,6 +1026,10 @@ class StrictRedis(object):
         if value is not None:
             return value
         raise KeyError(name)
+
+    def rgetbit(self, name, offset):
+        "Returns a boolean indicating the value of ``offset`` in ``name``"
+        return self.execute_command('R.GETBIT', name, offset)
 
     def getbit(self, name, offset):
         "Returns a boolean indicating the value of ``offset`` in ``name``"
@@ -1170,6 +1218,14 @@ class StrictRedis(object):
 
     def __setitem__(self, name, value):
         self.set(name, value)
+
+    def rsetbit(self, name, offset, value):
+        """
+        Flag the ``offset`` in ``name`` as ``value``. Returns a boolean
+        indicating the previous value of ``offset``.
+        """
+        value = value and 1 or 0
+        return self.execute_command('R.SETBIT', name, offset, value)
 
     def setbit(self, name, offset, value):
         """
